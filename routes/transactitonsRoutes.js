@@ -8,10 +8,9 @@ const {
   deleteAllTransaction,
 } = require("../controllers/transactionsController");
 const auth = require("../controllers/authController");
-
 const router = express.Router();
 
-router.use(auth.protect);
+router.use(auth.Protect);
 
 router.get("/my-transaction", getMyTransaction);
 router.route("/").get(getAllTransaction).delete(deleteAllTransaction);

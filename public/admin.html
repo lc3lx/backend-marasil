@@ -1,0 +1,102 @@
+<!-- public/admin.html -->
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>لوحة تحكم المدير</title>
+</head>
+<body>
+  <h2>📢 إرسال إشعار</h2>
+
+  <input type="text" id="title" placeholder="عنوان الإشعار" />
+  <br />
+  <input type="text" id="message" placeholder="محتوى الإشعار" />
+  <br />
+  <button id="sendBtn">إرسال</button>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+
+    document.getElementById('sendBtn').onclick = () => {
+      const title = document.getElementById('title').value.trim();
+      const message = document.getElementById('message').value.trim();
+
+      if (title && message) {
+        // إرسال الإشعار إلى السيرفر
+        socket.emit('adminBroadcast', {
+          title,
+          message
+        });
+      } else {
+        alert('❌ لازم تكتب عنوان ورسالة');
+      }
+    };
+  </script>
+
+  <!-- Add this to your admin HTML file -->
+  <div class="notification-form">
+    <h3>Send Notification</h3>
+    <form id="notification-form">
+      <div class="form-group">
+        <label for="recipient">Recipient ID:</label>
+        <input type="text" id="recipient" name="recipientId" required>
+      </div>
+      <div class="form-group">
+        <label for="title">Title:</label>
+        <input type="text" id="title" name="title" required>
+      </div>
+      <div class="form-group">
+        <label for="message">Message:</label>
+        <textarea id="message" name="message" required></textarea>
+      </div>
+      <div class="form-group">
+        <label for="type">Type:</label>
+        <select id="type" name="type">
+          <option value="info">Info</option>
+          <option value="success">Success</option>
+          <option value="warning">Warning</option>
+          <option value="error">Error</option>
+        </select>
+      </div>
+      <button type="submit">Send Notification</button>
+    </form>
+  </div>
+  
+  <script>
+    document.getElementById('notification-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const formData = new FormData(e.target);
+      const data = {
+        recipientId: formData.get('recipientId'),
+        title: formData.get('title'),
+        message: formData.get('message'),
+        type: formData.get('type')
+      };
+      
+      try {
+        const response = await fetch('/api/v1/notifications/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+          alert('Notification sent successfully!');
+          e.target.reset();
+        } else {
+          alert(`Error: ${result.message}`);
+        }
+      } catch (error) {
+        console.error('Error sending notification:', error);
+        alert('Failed to send notification. Please try again.');
+      }
+    });
+  </script>
+</body>

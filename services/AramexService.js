@@ -18,43 +18,120 @@ exports.formatAddress = (address) => {
  * تحويل بيانات الشحنة إلى صيغة Aramex
  * @param {Object} order بيانات الطلب
  * @param {Object} shipperAddress عنوان المرسل
- * @param {Object} box أبعاد الصندوق
+ * @param {Number} weight الوزن
+ * @param {Number} Parcels عدد الطرود
+ * @param {String} orderDescription وصف الطلب
+ * @param {Object} dimension الأبعاد
  * @returns {Object} بيانات الشحنة بصيغة Aramex
  */
-exports.shipmentData = (order, shipperAddress, box) => {
+exports.shipmentData = (
+  order,
+  shipperAddress,
+  weight,
+  Parcels,
+  orderDescription,
+  dimension = {}
+) => {
+  // التحقق من البيانات المطلوبة
+  if (!order || !shipperAddress || !weight || !Parcels) {
+    throw new Error(
+      "جميع البيانات مطلوبة: order, shipperAddress, weight, Parcels"
+    );
+  }
+
+  // التأكد من أن الوزن وعدد الطرود أرقام صحيح
+  if (isNaN(weight) || weight <= 0) {
+    throw new Error("الوزن يجب أن يكون رقماً موجباً");
+  }
+
+  if (isNaN(Parcels) || Parcels <= 0) {
+    throw new Error("عدد الطرود يجب أن يكون رقماً موجباً");
+  }
+
   return {
-    reference1: order.reference_id || "ORD-UNKNOWN",
-    reference2: order.order_number || "",
-    reference3: order.platform || "",
-    reference4: "",
-    reference5: "",
-    shipperReference1: shipperAddress.reference || "Ref1",
-    shipperAddress: exports.formatAddress(shipperAddress),
-    shipperContactName: shipperAddress.full_name || "غير محدد",
-    shipperCompanyName: shipperAddress.company_name || "غير محدد",
-    shipperPhone: shipperAddress.phone || "0000000000",
-    shipperMobile: shipperAddress.mobile || "0000000000",
-    shipperEmail: shipperAddress.email || "test@example.com",
-    consigneeReference1: order.customer.reference || "Ref2",
-    consigneeAddress: exports.formatAddress(order.customer),
-    consigneeContactName: order.customer.full_name || "غير محدد",
-    consigneeCompanyName: order.customer.company_name || "غير محدد",
-    consigneePhone: order.customer.phone || "0000000000",
-    consigneeMobile: order.customer.mobile || "0000000000",
-    consigneeEmail: order.customer.email || "test@example.com",
-    paymentType: order.payment_method === "COD" ? "P" : "C",
-    productGroup: "EXP",
-    productType: "PDX",
-    numberOfPieces: order.package_count || 1,
-    actualWeight: order.weight || 1.0,
-    chargeableWeight: order.weight || 1.0,
-    length: box?.length || 10,
-    width: box?.width || 10,
-    height: box?.height || 10,
-    goodsDescription: order.description || "منتجات عامة",
-    goodsOriginCountry: "SA",
-    services: "",
-    paymentOptions: order.payment_method === "COD" ? "CASH" : "PREPAID",
+    ClientInfo: {
+      UserName: process.env.ARAMEX_USERNAME,
+      Password: process.env.ARAMEX_PASSWORD,
+      Version: "v1.0",
+      AccountNumber: process.env.ARAMEX_ACCOUNT_NUMBER,
+      AccountPin: process.env.ARAMEX_ACCOUNT_PIN,
+      AccountEntity: process.env.ARAMEX_ACCOUNT_ENTITY || "JED",
+      AccountCountryCode: process.env.ARAMEX_ACCOUNT_COUNTRY_CODE || "SA",
+    },
+    Shipments: [
+      {
+        Reference1: order.reference_id || `ORD-${Date.now()}`,
+        Reference2: order.order_number || "",
+        Reference3: order.platform || "",
+        Reference4: "",
+        Reference5: "",
+        Shipper: {
+          Reference1: shipperAddress.reference || "Ref1",
+          Address: exports.formatAddress(shipperAddress),
+          Contact: {
+            PersonName: shipperAddress.full_name || "غير محدد",
+            CompanyName: shipperAddress.company_name || "غير محدد",
+            PhoneNumber1: shipperAddress.phone || "0000000000",
+            CellPhone: shipperAddress.mobile || "0000000000",
+            EmailAddress: shipperAddress.email || "test@example.com",
+          },
+        },
+        Consignee: {
+          Reference1: order.customer?.reference || "Ref2",
+          Address: exports.formatAddress(order.customer),
+          Contact: {
+            PersonName: order.customer?.full_name || "غير محدد",
+            CompanyName: order.customer?.company_name || "غير محدد",
+            PhoneNumber1: order.customer?.phone || "0000000000",
+            CellPhone: order.customer?.mobile || "0000000000",
+            EmailAddress: order.customer?.email || "test@example.com",
+          },
+        },
+        ThirdParty: null,
+        ShippingDateTime: new Date().toISOString(),
+        DueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        Comments: orderDescription || order.description || "منتجات عامة",
+        PickupLocation: "",
+        OperationsInstructions: "",
+        AccountingIninstructions: "",
+        Details: {
+          Dimensions: {
+            Length: dimension.length || 10,
+            Width: dimension.width || 10,
+            Height: dimension.height || 10,
+            Unit: "cm",
+          },
+          ActualWeight: {
+            Value: weight,
+            Unit: "KG",
+          },
+          ChargeableWeight: {
+            Value: weight,
+            Unit: "KG",
+          },
+          DescriptionOfGoods:
+            orderDescription || order.description || "منتجات عامة",
+          GoodsOriginCountry: "SA",
+          NumberOfPieces: Parcels,
+          ProductGroup: "EXP",
+          ProductType: "PDX",
+          PaymentType: order.payment_method === "COD" ? "P" : "C",
+          PaymentOptions: order.payment_method === "COD" ? "CASH" : "PREPAID",
+          Services: "",
+          ItemCount: order.items?.length || 1,
+          CustomsValueAmount: {
+            Value: parseFloat(order.total || 0),
+            CurrencyCode: "SAR",
+          },
+        },
+        Attachments: [],
+        ForeignHAWB: "",
+        TransportType: 0,
+        PickupGUID: "",
+        Number: "",
+        ScheduledDelivery: null,
+      },
+    ],
   };
 };
 

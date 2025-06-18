@@ -10,14 +10,14 @@ const {
   removeBalance,
   RechargeWalletbyBank,
   updatestatus,
-  uplaodBankreceiptImage,
+  uplaodBankreceiptImage
 } = require("../controllers/walletController");
 
 const auth = require("../controllers/authController");
 
 const router = express.Router();
 
-router.use(auth.protect);
+router.use(auth.Protect);
 
 router.get("/myWallet", getMyWallet);
 router.get("/:id", getOneWallet);

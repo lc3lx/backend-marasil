@@ -24,6 +24,10 @@ const packageSchema = new mongoose.Schema(
       type: mongoose.Schema.ObjectId,
       ref: "Customer",
     },
+    isPublic: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

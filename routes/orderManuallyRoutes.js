@@ -1,9 +1,8 @@
 const express = require("express");
 
 const router = express.Router({mergeParams: true});
-const { protect, allowedTo } = require("../controllers/authController");
-
-router.use(protect);
+const auth = require("../controllers/authController");
+router.use(auth.Protect);
 
 const {
     createOrders,

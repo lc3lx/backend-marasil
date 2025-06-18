@@ -153,6 +153,7 @@ module.exports.createShapment = asyncHandler(async (req, res, next) => {
 
     // 7. حفظ بيانات الشحنة
     const shipment = new Shapment({
+      customerId: req.Customer._id,
       receiverAddress: order.customer_address,
       ordervalue: order.total.amount,
       orderId: order._id,
@@ -393,5 +394,370 @@ module.exports.printShipmentInvoice = asyncHandler(async (req, res, next) => {
     // 6. معالجة الأخطاء
     console.error(`خطأ في طباعة الفاتورة: ${error.message}`);
     return next(new ApiEror(`فشل في طباعة الفاتورة: ${error.message}`, 500));
+  }
+});
+
+/*
+METHOD: GET
+GET ALL SHIPMENTS FOR A SPECIFIC CUSTOMER
+*/
+module.exports.getCustomerShipments = asyncHandler(async (req, res, next) => {
+  try {
+    const customerId = req.customer._id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const shipments = await Shapment.find({ customerId })
+      .populate("customerId", "firstName lastName email phone")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Shapment.countDocuments({ customerId });
+
+    res.status(200).json({
+      status: "success",
+      results: shipments.length,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        itemsPerPage: limit,
+      },
+      data: shipments,
+    });
+  } catch (error) {
+    return next(new ApiEror(`فشل في جلب الشحنات: ${error.message}`, 500));
+  }
+});
+
+/*
+METHOD: GET
+GET SINGLE SHIPMENT BY ID
+*/
+module.exports.getShipment = asyncHandler(async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const customerId = req.customer._id;
+
+    const shipment = await Shapment.findOne({ _id: id, customerId }).populate(
+      "customerId",
+      "firstName lastName email phone"
+    );
+
+    if (!shipment) {
+      return next(new ApiEror("الشحنة غير موجودة", 404));
+    }
+
+    res.status(200).json({
+      status: "success",
+      data: shipment,
+    });
+  } catch (error) {
+    return next(new ApiEror(`فشل في جلب الشحنة: ${error.message}`, 500));
+  }
+});
+
+/*
+METHOD: GET (ADMIN ONLY)
+GET ALL SHIPMENTS FOR ALL CUSTOMERS
+*/
+module.exports.getAllShipments = asyncHandler(async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Build filter object
+    const filter = {};
+
+    if (req.query.status) {
+      filter.shipmentStatus = req.query.status;
+    }
+
+    if (req.query.shipper) {
+      filter.shipper = req.query.shipper;
+    }
+
+    if (req.query.paymentMethod) {
+      filter.paymentMethod = req.query.paymentMethod;
+    }
+
+    if (req.query.startDate && req.query.endDate) {
+      filter.createdAt = {
+        $gte: new Date(req.query.startDate),
+        $lte: new Date(req.query.endDate),
+      };
+    }
+
+    const shipments = await Shapment.find(filter)
+      .populate(
+        "customerId",
+        "firstName lastName email phone company_name_ar company_name_en"
+      )
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Shapment.countDocuments(filter);
+
+    res.status(200).json({
+      status: "success",
+      results: shipments.length,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        itemsPerPage: limit,
+      },
+      data: shipments,
+    });
+  } catch (error) {
+    return next(new ApiEror(`فشل في جلب الشحنات: ${error.message}`, 500));
+  }
+});
+
+/*
+METHOD: GET (ADMIN ONLY)
+GET SINGLE SHIPMENT BY ID (ADMIN VERSION)
+*/
+module.exports.getShipmentAdmin = asyncHandler(async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const shipment = await Shapment.findById(id).populate(
+      "customerId",
+      "firstName lastName email phone company_name_ar company_name_en"
+    );
+
+    if (!shipment) {
+      return next(new ApiEror("الشحنة غير موجودة", 404));
+    }
+
+    res.status(200).json({
+      status: "success",
+      data: shipment,
+    });
+  } catch (error) {
+    return next(new ApiEror(`فشل في جلب الشحنة: ${error.message}`, 500));
+  }
+});
+
+/*
+METHOD: PUT (ADMIN ONLY)
+UPDATE SHIPMENT BY ADMIN
+*/
+module.exports.updateShipment = asyncHandler(async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    // Remove fields that shouldn't be updated
+    delete updateData._id;
+    delete updateData.customerId;
+    delete updateData.trackingId;
+    delete updateData.createdAt;
+    delete updateData.updatedAt;
+
+    const shipment = await Shapment.findByIdAndUpdate(id, updateData, {
+      new: true,
+      runValidators: true,
+    }).populate("customerId", "firstName lastName email phone");
+
+    if (!shipment) {
+      return next(new ApiEror("الشحنة غير موجودة", 404));
+    }
+
+    res.status(200).json({
+      status: "success",
+      message: "تم تحديث الشحنة بنجاح",
+      data: shipment,
+    });
+  } catch (error) {
+    return next(new ApiEror(`فشل في تحديث الشحنة: ${error.message}`, 500));
+  }
+});
+
+/*
+METHOD: DELETE (ADMIN ONLY)
+DELETE SHIPMENT BY ADMIN
+*/
+module.exports.deleteShipment = asyncHandler(async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const shipment = await Shapment.findByIdAndDelete(id);
+
+    if (!shipment) {
+      return next(new ApiEror("الشحنة غير موجودة", 404));
+    }
+
+    res.status(200).json({
+      status: "success",
+      message: "تم حذف الشحنة بنجاح",
+    });
+  } catch (error) {
+    return next(new ApiEror(`فشل في حذف الشحنة: ${error.message}`, 500));
+  }
+});
+
+/*
+METHOD: GET
+SEARCH SHIPMENTS BY VARIOUS CRITERIA
+*/
+module.exports.searchShipments = asyncHandler(async (req, res, next) => {
+  try {
+    const { trackingNumber, phone, email, shipmentId, customerId } = req.query;
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    let filter = {};
+
+    // Search by tracking number
+    if (trackingNumber) {
+      filter.trackingId = { $regex: trackingNumber, $options: "i" };
+    }
+
+    // Search by shipment ID
+    if (shipmentId) {
+      filter._id = shipmentId;
+    }
+
+    // Search by customer ID
+    if (customerId) {
+      filter.customerId = customerId;
+    }
+
+    // Search by customer phone or email
+    if (phone || email) {
+      const customerFilter = {};
+      if (phone) customerFilter.phone = { $regex: phone, $options: "i" };
+      if (email) customerFilter.email = { $regex: email, $options: "i" };
+
+      const customers = await customer.find(customerFilter).select("_id");
+      const customerIds = customers.map((c) => c._id);
+
+      if (customerIds.length > 0) {
+        filter.customerId = { $in: customerIds };
+      } else {
+        // If no customers found, return empty result
+        return res.status(200).json({
+          status: "success",
+          results: 0,
+          pagination: {
+            currentPage: page,
+            totalPages: 0,
+            totalItems: 0,
+            itemsPerPage: limit,
+          },
+          data: [],
+        });
+      }
+    }
+
+    // If no search criteria provided, return error
+    if (Object.keys(filter).length === 0) {
+      return next(new ApiEror("يجب توفير معيار بحث واحد على الأقل", 400));
+    }
+
+    const shipments = await Shapment.find(filter)
+      .populate(
+        "customerId",
+        "firstName lastName email phone company_name_ar company_name_en"
+      )
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Shapment.countDocuments(filter);
+
+    res.status(200).json({
+      status: "success",
+      results: shipments.length,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        itemsPerPage: limit,
+      },
+      data: shipments,
+    });
+  } catch (error) {
+    return next(new ApiEror(`فشل في البحث عن الشحنات: ${error.message}`, 500));
+  }
+});
+
+/*
+METHOD: GET
+GET SHIPMENT STATISTICS FOR CUSTOMER
+*/
+module.exports.getShipmentsStats = asyncHandler(async (req, res, next) => {
+  try {
+    const customerId = req.customer._id;
+
+    const stats = await Shapment.aggregate([
+      { $match: { customerId: customerId } },
+      {
+        $group: {
+          _id: null,
+          totalShipments: { $sum: 1 },
+          totalValue: { $sum: "$orderValue" },
+          totalShippingCost: { $sum: "$shippingPrice" },
+          pendingShipments: {
+            $sum: {
+              $cond: [{ $eq: ["$shipmentStatus", "READY_FOR_PICKUP"] }, 1, 0],
+            },
+          },
+          deliveredShipments: {
+            $sum: {
+              $cond: [{ $eq: ["$shipmentStatus", "DELIVERED"] }, 1, 0],
+            },
+          },
+          inTransitShipments: {
+            $sum: {
+              $cond: [
+                {
+                  $in: ["$shipmentStatus", ["IN_TRANSIT", "OUT_FOR_DELIVERY"]],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ]);
+
+    const shipperStats = await Shapment.aggregate([
+      { $match: { customerId: customerId } },
+      {
+        $group: {
+          _id: "$shipper",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const result = {
+      totalShipments: stats[0]?.totalShipments || 0,
+      totalValue: stats[0]?.totalValue || 0,
+      totalShippingCost: stats[0]?.totalShippingCost || 0,
+      pendingShipments: stats[0]?.pendingShipments || 0,
+      deliveredShipments: stats[0]?.deliveredShipments || 0,
+      inTransitShipments: stats[0]?.inTransitShipments || 0,
+      shipperBreakdown: shipperStats,
+    };
+
+    res.status(200).json({
+      status: "success",
+      data: result,
+    });
+  } catch (error) {
+    return next(
+      new ApiEror(`فشل في جلب إحصائيات الشحنات: ${error.message}`, 500)
+    );
   }
 });

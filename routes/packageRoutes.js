@@ -11,10 +11,9 @@ const {
   updatePackagealidator,
 } = require("../utils/validators/packageValidator");
 const auth = require("../controllers/authController");
-
 const router = express.Router();
 
-router.use(auth.protect);
+router.use(auth.Protect);
 
 router.route("/").get(getPackages).post(createPackage);
 

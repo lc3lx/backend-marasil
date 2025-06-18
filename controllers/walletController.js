@@ -4,6 +4,8 @@ const axios = require("axios");
 const Wallet = require("../models/walletModel");
 const Transaction = require("../models/transactionModel");
 const { uploadSingleImage } = require("../middlewares/uploadImageMiddleware");
+const { v4: uuidv4 } = require("uuid");
+
 const customer = require("../models/customerModel");
 // const { response } = require("express");
 
@@ -68,7 +70,7 @@ exports.RechargeWallet = asyncHandler(async (req, res, next) => {
     );
     const payment = response.data;
 
-    res.json({ success: true, payment: response.data });
+    res.json({ success: true, payment });
   } catch (err) {
     res.status(400).json({ err: err.response?.data || err.message });
   }
@@ -108,7 +110,7 @@ exports.getPaymentStatus = asyncHandler(async (req, res, next) => {
 
       const transaction = await Transaction.create({
         type: "credit",
-
+        customerId: req.customer._id,
         description: "Recharge Wallet",
         amount: netAmount / 100,
         refundableAmount: refundableAmount,
@@ -347,18 +349,19 @@ exports.removeBalance = asyncHandler(async (req, res, next) => {
 
 // recharge wallet by bancK_transfer
 
-exports.uplaodBankreceiptImage = uploadSingleImage("receipt");
-
-const storage = multer.diskStorage({
+const multerstorage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, "uploads/bankReceipt");
+    const dir = "uploads/bankReceipt";
+    cb(null, dir);
   },
   filename: function (req, file, cb) {
-    cb(null, Date.now() + "-" + file.originalname);
+    const extract = file.mimetype.split("/")[1];
+    const filename = `bankRecipt-${uuidv4()}-${Date.now()}.${extract}`;
+    cb(null, filename);
   },
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ storage: multerstorage });
 exports.uplaodBankreceiptImage = upload.single("bankReceipt");
 
 exports.RechargeWalletbyBank = asyncHandler(async (req, res, next) => {
@@ -375,9 +378,11 @@ exports.RechargeWalletbyBank = asyncHandler(async (req, res, next) => {
     });
     await transaction.save();
 
-    await Wallet.findByIdAndUpdate(req.customer.id, {
-      $push: { transactions: transaction._id },
-    });
+    await Wallet.findOneAndUpdate(
+      { customerId: transaction.customerId },
+      { $push: { transactions: transaction._id } },
+      { new: true, upsert: true }
+    );
 
     res.json({ success: true, message: "تم رفع طلب الشحن بنجاح!" });
   } catch (err) {

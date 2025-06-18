@@ -18,28 +18,24 @@ class AramexService {
     // this.locationBaseURL = "https://ws.aramex.net/LocationAPI.V2/Location/Service_1_0.svc/json"; // Live Environment
 
     // Default credentials (replace with your actual credentials)
-    this.username = "YOUR_USERNAME"; // اسم المستخدم الخاص بك
-    this.password = "YOUR_PASSWORD"; // كلمة المرور الخاصة بك
-    this.accountNumber = "YOUR_ACCOUNT_NUMBER"; // رقم الحساب الخاص بك
-    this.accountPin = "YOUR_ACCOUNT_PIN"; // PIN الحساب الخاص بك
-    this.accountEntity = "JED"; // الكيان (مثال: JED)
-    this.accountCountryCode = "SA"; // رمز الدولة
-  }
+    this.username = process.env.ARAMEX_USERNAME;
+    this.password = process.env.ARAMEX_PASSWORD;
+    this.accountNumber = process.env.ARAMEX_ACCOUNT_NUMBER;
+    this.accountPin = process.env.ARAMEX_ACCOUNT_PIN;
+    this.accountEntity = process.env.ARAMEX_ACCOUNT_ENTITY || "JED";
+    this.accountCountryCode = process.env.ARAMEX_ACCOUNT_COUNTRY_CODE || "SA";
 
-  /**
-   * تنسيق عنوان العميل إلى صيغة Aramex
-   * @param {Object} address - عنوان العميل من قاعدة البيانات
-   * @returns {Object} - عنوان بصيغة Aramex
-   */
-  formatAddress(address) {
-    return {
-      Line1: address.line1 || "غير محدد",
-      Line2: address.line2 || "",
-      Line3: address.line3 || "",
-      City: address.city || "غير محدد",
-      PostCode: address.postCode || "",
-      CountryCode: address.countryCode || "SA",
-    };
+    // Configure axios defaults
+    this.axiosInstance = axios.create({
+      timeout: 300000, // 30 seconds timeout
+      maxContentLength: 50 * 1024 * 1024, // 50MB max content length
+      maxBodyLength: 50 * 1024 * 1024, // 50MB max body length
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Host: "ws.dev.aramex.net/ShippingAPI.V2",
+      },
+    });
   }
 
   /**
@@ -49,29 +45,71 @@ class AramexService {
    */
   async createShipment(shipmentData) {
     try {
-      const response = await axios.post(
-        `${this.shippingBaseURL}/CreateShipments`,
-        shipmentData,
-        {
-          headers: { "Content-Type": "application/json" },
-        }
+      console.log(
+        "Attempting to create Aramex shipment with data:",
+        JSON.stringify(shipmentData, null, 2)
       );
-      if (response.status !== 200) {
+
+      const response = await this.axiosInstance.post(
+        `${this.shippingBaseURL}/CreateShipment`,
+        shipmentData
+      );
+
+      if (response.status !== 200 || !response.data.Shipments?.[0]) {
+        console.error(
+          "Aramex API Error Response:",
+          JSON.stringify(response.data, null, 2)
+        );
         throw new Error(
           `خطأ في إنشاء الشحنة: ${JSON.stringify(response.data)}`
         );
       }
+
+      const shipment = response.data.Shipments[0];
+      console.log(
+        "Aramex shipment created successfully:",
+        JSON.stringify(shipment, null, 2)
+      );
+
       return {
         success: true,
-        trackingNumber: response.data.Shipments[0].ID,
-        labelURL: response.data.Shipments[0].LabelURL,
+        trackingNumber: shipment.ID,
+        labelURL: shipment.LabelURL,
+        status: shipment.Status,
+        estimatedDeliveryDate: shipment.EstimatedDeliveryDate,
+        details: {
+          reference: shipment.Reference1,
+          pieces: shipment.Details.NumberOfPieces,
+          weight: shipment.Details.ActualWeight.Value,
+          dimensions: {
+            length: shipment.Details.Dimensions.Length,
+            width: shipment.Details.Dimensions.Width,
+            height: shipment.Details.Dimensions.Height,
+          },
+        },
       };
     } catch (error) {
       console.error(
         "Aramex Create Shipment Error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
+        "\nFull error:",
+        error
       );
-      throw new Error(`فشل إنشاء الشحنة: ${error.message}`);
+
+      // تحسين رسالة الخطأ
+      let errorMessage = "فشل في إنشاء الشحنة";
+      if (error.code === "ETIMEDOUT") {
+        errorMessage =
+          "انتهت مهلة الاتصال بخدمة Aramex. يرجى المحاولة مرة أخرى";
+      } else if (error.response?.data) {
+        errorMessage = `خطأ من خدمة Aramex: ${JSON.stringify(
+          error.response.data
+        )}`;
+      } else if (error.message) {
+        errorMessage = `خطأ: ${error.message}`;
+      }
+
+      throw new Error(errorMessage);
     }
   }
 

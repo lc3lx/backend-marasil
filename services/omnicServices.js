@@ -1,3 +1,5 @@
+const omnidPlatform = require("../platforms/shipment/omnidPlatform");
+
 /**
  * تحويل بيانات الاتصال إلى صيغة OmniDelivery
  * @param {Object} contact بيانات الاتصال
@@ -11,6 +13,74 @@ exports.formatContact = (contact) => {
     name: contact.full_name || "غير محدد",
     phone: contact.phone || "0000000000",
   };
+};
+
+/**
+ * الحصول على نقطة استلام وتسليم مناسبة
+ * @param {Object} location بيانات الموقع
+ * @param {Boolean} isPickup هل هي نقطة استلام
+ * @returns {Promise<Object>} بيانات نقطة الاستلام والتسليم
+ */
+exports.getSuitablePoint = async (location, isPickup = true) => {
+  try {
+    // التحقق من وجود البيانات الأساسية
+    if (!location || !location.country || !location.city) {
+      throw new Error("بيانات الموقع غير مكتملة");
+    }
+
+    const params = {
+      country_name: location.country,
+      city_name: location.city,
+      is_pickup: isPickup,
+      is_delivery: !isPickup,
+      status: 30, // LAUNCHED INTO OPERATION
+      page: 1,
+      page_size: 10, // زيادة عدد النتائج للبحث عن نقطة مناسبة
+    };
+
+    console.log("Searching for points with params:", params);
+
+    const response = await omnidPlatform.listPickupDeliveryPoints(params);
+
+    if (!response.success) {
+      throw new Error(response.message || "فشل في البحث عن النقاط");
+    }
+
+    if (!response.data.results || response.data.results.length === 0) {
+      // إذا لم يتم العثور على نقاط، نعيد بيانات الموقع الأصلي
+      console.log("No points found, using original location data");
+      return {
+        uid: null,
+        location: {
+          full_address: location.address || "",
+          city: { name: location.city || "" },
+          country: { name: location.country || "SA" },
+          latitude: location.coordinates?.lat || 0,
+          longitude: location.coordinates?.lng || 0,
+          postal_index: location.post_code || "",
+        },
+      };
+    }
+
+    // اختيار النقطة الأولى المناسبة
+    const point = response.data.results[0];
+    console.log("Found suitable point:", point.uid);
+    return point;
+  } catch (error) {
+    console.error("خطأ في الحصول على نقطة الاستلام/التسليم:", error);
+    // في حالة حدوث خطأ، نعيد بيانات الموقع الأصلي
+    return {
+      uid: null,
+      location: {
+        full_address: location?.address || "",
+        city: { name: location?.city || "" },
+        country: { name: location?.country || "SA" },
+        latitude: location?.coordinates?.lat || 0,
+        longitude: location?.coordinates?.lng || 0,
+        postal_index: location?.post_code || "",
+      },
+    };
+  }
 };
 
 /**
@@ -34,53 +104,161 @@ exports.formatLocation = (location) => {
  * تحويل بيانات الشحنة إلى صيغة OmniDelivery
  * @param {Object} order بيانات الطلب
  * @param {Object} shipperAddress عنوان المرسل
- * @param {Object} box أبعاد الصندوق
- * @returns {Object} بيانات الشحنة بصيغة OmniDelivery
+ * @param {Number} weight الوزن
+ * @param {Number} Parcels عدد الطرود
+ * @param {String} orderDescription وصف الطلب
+ * @param {Object} dimension الأبعاد
+ * @returns {Promise<Object>} بيانات الشحنة بصيغة OmniDelivery
  */
-exports.shipmentData = (order, shipperAddress, typeOfshipment, box) => {
-  return {
-    cost: {
-      cod_value:
-        order.payment_method === "COD"
-          ? parseFloat(order.total.amount) || 0
-          : 0,
-      declared_cost: parseFloat(order.total.amount) || 0,
-      services_payment: [],
-    },
-    delivery_comment: order.delivery_notes || "",
-    delivery_options: {
-      sending_parcel_locker: order.use_parcel_locker || false,
-    },
-    description: order.description || "منتجات عامة",
-    desired_delivery_at: {
-      delivery_date:
-        order.delivery_date || new Date().toISOString().split("T")[0],
-      delivery_time_start: order.delivery_time_start || "09:00",
-      delivery_time_end: order.delivery_time_end || 960,
-    },
-    direction_type: typeOfshipment, // 0: Delivery (strait) order
-    height: box?.height || 0,
-    length: box?.length || 0,
-    location_from: exports.formatLocation(shipperAddress),
-    location_to: exports.formatLocation(order.customer),
-    logistician_uid: order.logistician_uid || "",
-    number: order.reference_id || "ORD-UNKNOWN",
-    places: [
-      {
-        weight: order.weight || 0,
-        length: box?.length || 0,
-        width: box?.width || 0,
-        height: box?.height || 0,
+exports.shipmentData = async (
+  order,
+  shipperAddress,
+  weight,
+  Parcels,
+  orderDescription,
+  dimension = {}
+) => {
+  // التحقق من البيانات المطلوبة
+  if (!order || !shipperAddress || !weight || !Parcels) {
+    throw new Error(
+      "جميع البيانات مطلوبة: order, shipperAddress, weight, Parcels"
+    );
+  }
+
+  // التحقق من بيانات المستلم
+  if (!order.customer || !order.customer.full_name || !order.customer.mobile) {
+    throw new Error("بيانات المستلم غير مكتملة: يجب تحديد الاسم ورقم الهاتف");
+  }
+
+  // التأكد من أن الوزن وعدد الطرود أرقام صحيح
+  if (isNaN(weight) || weight <= 0) {
+    throw new Error("الوزن يجب أن يكون رقماً موجباً");
+  }
+
+  if (isNaN(Parcels) || Parcels <= 0) {
+    throw new Error("عدد الطرود يجب أن يكون رقماً موجباً");
+  }
+
+  // إنشاء رقم فريد للشحنة
+  const shipmentNumber = `ORD-${Date.now()}`;
+
+  try {
+    // الحصول على نقاط الاستلام والتسليم
+    const pickupPoint = await exports.getSuitablePoint(shipperAddress, true);
+    const deliveryPoint = await exports.getSuitablePoint(order.customer, false);
+
+    const shipmentData = {
+      cost: {
+        cod_value:
+          order.paymentMethod === "COD" ? parseFloat(order.total || 0) : 0,
+        declared_cost: parseFloat(order.total || 0),
+        services_payment: [],
       },
-    ],
-    receiver: exports.formatContact(order.customer),
-    sender: exports.formatContact(shipperAddress),
-    tariff_code: order.tariff_code || "63",
-    uid: order.uid || "",
-    weight: order.weight || 0,
-    width: box?.width || 0,
-    initial_status: 11, // Receiver will have to pick some parcel locker
-  };
+
+      description: orderDescription || order.description || "منتجات عامة",
+
+      direction_type: "forward", // إضافة نوع الاتجاه
+
+      height: dimension.height || 10,
+      length: dimension.length || 10,
+      location_from: {
+        point: {
+          uid: pickupPoint.uid,
+          address:
+            pickupPoint.location.full_address || shipperAddress.address || "",
+          city: pickupPoint.location.city.name || shipperAddress.city || "",
+          country:
+            pickupPoint.location.country.name || shipperAddress.country || "SA",
+          coordinates: {
+            lat:
+              pickupPoint.location.latitude ||
+              shipperAddress.coordinates?.lat ||
+              0,
+            lng:
+              pickupPoint.location.longitude ||
+              shipperAddress.coordinates?.lng ||
+              0,
+          },
+          post_code:
+            pickupPoint.location.postal_index || shipperAddress.post_code || "",
+        },
+      },
+      location_to: {
+        point: {
+          uid: deliveryPoint.uid,
+          address:
+            deliveryPoint.location.full_address ||
+            order.customer?.address ||
+            "",
+          city: deliveryPoint.location.city.name || order.customer?.city || "",
+          country:
+            deliveryPoint.location.country.name ||
+            order.customer?.country ||
+            "SA",
+          coordinates: {
+            lat:
+              deliveryPoint.location.latitude ||
+              order.customer?.coordinates?.lat ||
+              0,
+            lng:
+              deliveryPoint.location.longitude ||
+              order.customer?.coordinates?.lng ||
+              0,
+          },
+          post_code:
+            deliveryPoint.location.postal_index ||
+            order.customer?.post_code ||
+            "",
+        },
+      },
+
+      number: shipmentNumber,
+      places: [
+        {
+          items: [
+            {
+              articul: order.items?.[0]?.sku || "001230124",
+              cost: parseFloat(order.total || 0),
+              cost_vat: 20,
+              height: parseInt(dimension.high || 0),
+              length: parseInt(dimension.length || 230),
+              marking: `cnivun-${Date.now()}`,
+              name: order.items?.[0]?.name || "منتج عام",
+              provider_inn: order.provider?.inn || "74162944192",
+              provider_name: order.provider?.name || "TechnoPolis",
+              quantity: parseInt(order.items?.[0]?.quantity || 1),
+              weight: Math.ceil(weight),
+              width: parseInt(dimension.width || 130),
+            },
+          ],
+          barcode: `[BCD]${shipmentNumber}_01`,
+          height: parseInt(dimension.high || 0),
+          length: parseInt(dimension.length || 230),
+          number: `${shipmentNumber}_01`,
+          weight: Math.ceil(weight),
+          width: parseInt(dimension.width || 130),
+        },
+      ],
+      receiver: {
+        company_name: order.customer.full_name || "",
+        company_reg_number: order.customer.reg_number || "",
+        email: order.customer.email || "",
+        name: order.customer.full_name || "",
+        phone: order.customer.mobile || "",
+      },
+      weight: Math.ceil(weight),
+      width: dimension.width || 10,
+    };
+
+    console.log(
+      "Shipment data prepared:",
+      JSON.stringify(shipmentData, null, 2)
+    );
+    return shipmentData;
+  } catch (error) {
+    console.error("Error in shipmentData:", error);
+    throw new Error(`فشل في إنشاء بيانات الشحنة: ${error.message}`);
+  }
 };
 
 /**

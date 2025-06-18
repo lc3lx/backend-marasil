@@ -24,7 +24,7 @@ exports.Shapmentdata = (
 ) => {
   const shipmentData = {
     CODAmount:
-      order.payment_method === "COD"
+      order.paymentMethod === "COD"
         ? parseFloat(order.total.amount) || 0.0
         : 0.0,
     ConsigneeAddress: exports.formatAddress(order.customer), // عنوان المستلم

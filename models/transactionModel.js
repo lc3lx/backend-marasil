@@ -43,5 +43,21 @@ const transactionSchema = new mongoose.Schema({
   walletId: { type: String, ref: "Wallet" },
 });
 
+
+const SetImageUrl = (doc) => {
+   if (doc.bankReceipt) {
+    const ImageUrl = `${process.env.BASE_URL}/bankReceipt/${doc.bankReceipt}`;
+    doc.bankReceipt = ImageUrl;
+  }
+
+};
+
+transactionSchema.post("init", function (doc) {
+  SetImageUrl(doc);
+});
+
+transactionSchema.post("save", (doc) => {
+  SetImageUrl(doc);
+});
 const Transaction = mongoose.model("Transaction", transactionSchema);
 module.exports = Transaction;

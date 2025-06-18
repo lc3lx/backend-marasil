@@ -6,7 +6,9 @@ const Package = require("../models/packageModel");
 // @route   GET /api/packege
 // @access   Private/Admin/user
 exports.getPackages = asyncHandler(async (req, res, next) => {
-  const package = await Package.find({ customer: req.customer._id });
+  const package = await Package.find({
+    $or: [{ isPublic: true }, { customer: req.customer._id }],
+  });
   res
     .status(200)
     .json({ status: "success", results: package.length, data: package });
@@ -21,10 +23,20 @@ exports.getOnePackage = factory.getOne(Package);
 // @route   POST  /api/Package
 // @access    Private/Admin/user
 exports.createPackage = asyncHandler(async (req, res, next) => {
-  const package = await Package.create({
-    customer: req.customer._id,
-    ...req.body,
-  });
+  let package;
+  if (req.customer.role === "user") {
+    package = await Package.create({
+      customer: req.customer._id,
+      ...req.body,
+      isPublic: false,
+    });
+  } else {
+    package = await Package.create({
+      ...req.body,
+      isPublic: true,
+    });
+  }
+
   res.status(201).json({ status: "success", data: package });
 });
 // @desc    Update specific package

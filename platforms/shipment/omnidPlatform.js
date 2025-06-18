@@ -2,7 +2,12 @@ const axios = require("axios");
 const { URLSearchParams } = require("url");
 
 class OmniDeliveryAPI {
-  constructor(clientId, clientSecret, isProduction = false) {
+  constructor(
+    clientId = "zjShmQfZlM2DSXKVsZG5fbyt",
+    clientSecret = "7IVhCT8zw3g9PdF17NwnrevFIEcshLr46V9BrJJzIelkokJp",
+    isProduction = true
+  ) {
+    // استخدام بيانات الاعتماد الافتراضية إذا لم يتم تمريرها
     this.clientId = clientId;
     this.clientSecret = clientSecret;
     this.isProduction = isProduction;
@@ -10,7 +15,45 @@ class OmniDeliveryAPI {
     this.tokenExpiry = null;
     this.baseURL = isProduction
       ? "https://api.omnic.solutions"
-      : "http://dev.ecomgate.omnic.solutions/api/1.0.0/type-1/";
+      : "http://dev.ecomgate.omnic.solutions";
+
+    // إعداد معالج الأخطاء
+    this.client = axios.create({
+      validateStatus: function (status) {
+        return status < 500; // Resolve only if the status code is less than 500
+      },
+    });
+
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response) {
+          switch (error.response.status) {
+            case 401:
+              throw new Error("غير مصرح: تأكد من صحة بيانات الاعتماد");
+            case 403:
+              throw new Error("غير مصرح: ليس لديك صلاحية للوصول");
+            case 404:
+              throw new Error("الخدمة غير موجودة");
+            case 422:
+              const validationErrors = error.response.data.errors
+                ? Object.entries(error.response.data.errors)
+                    .map(([field, errors]) => `${field}: ${errors.join(", ")}`)
+                    .join("\n")
+                : error.response.data.message;
+              throw new Error(`خطأ في البيانات:\n${validationErrors}`);
+            default:
+              throw new Error(
+                `خطأ في الخادم: ${error.response.data.message || error.message}`
+              );
+          }
+        } else if (error.request) {
+          throw new Error("لا يمكن الوصول إلى خادم OmniDelivery");
+        } else {
+          throw new Error(`خطأ في الطلب: ${error.message}`);
+        }
+      }
+    );
   }
 
   // === المصادقة ===
@@ -27,32 +70,80 @@ class OmniDeliveryAPI {
     body.append("grant_type", "client_credentials");
 
     try {
-      const response = await axios.post(authUrl, body.toString(), {
+      console.log("Authenticating with:", {
+        url: authUrl,
+        clientId: this.clientId,
+        isProduction: this.isProduction,
+      });
+
+      const response = await this.client.post(authUrl, body.toString(), {
         headers: {
           Authorization: `Basic ${basicAuth}`,
           "Content-Type": "application/x-www-form-urlencoded",
         },
       });
 
-      this.accessToken = response.data.data.access_token;
-      this.tokenExpiry = Date.now() + response.data.data.expires_in * 1000;
+      console.log("Auth Response:", JSON.stringify(response.data, null, 2));
+
+      if (!response.data || !response.data.access_token) {
+        return {
+          success: false,
+          status: response.status,
+          message: "Invalid authentication response",
+        };
+      }
+
+      this.accessToken = response.data.access_token;
+      this.tokenExpiry = Date.now() + response.data.expires_in * 1000;
       this.headers = {
         Authorization: `Bearer ${this.accessToken}`,
         "Content-Type": "application/json",
       };
+
+      console.log("Auth successful, token set:", {
+        tokenExpiry: new Date(this.tokenExpiry).toISOString(),
+        hasToken: !!this.accessToken,
+      });
+
+      return {
+        success: true,
+        accessToken: response.data.access_token,
+        expiresIn: response.data.expires_in,
+        tokenType: response.data.token_type,
+      };
     } catch (error) {
-      throw new Error(
-        `Authentication failed: ${
-          error.response?.data?.message || error.message
-        }`
-      );
+      console.error("Authentication Error:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      if (error.response) {
+        return {
+          success: false,
+          status: error.response.status,
+          message: error.response.data?.message || "Authentication failed",
+        };
+      } else {
+        return {
+          success: false,
+          message: "Network error or server unavailable",
+        };
+      }
     }
   }
 
   async ensureAuth() {
     if (!this.accessToken || Date.now() >= this.tokenExpiry) {
-      await this.authenticate();
+      console.log("Token expired or missing, authenticating...");
+      const authResult = await this.authenticate();
+      if (!authResult.success) {
+        throw new Error(`Authentication failed: ${authResult.message}`);
+      }
     }
+    console.log("Using token:", {
+      hasToken: !!this.accessToken,
+      expiry: new Date(this.tokenExpiry).toISOString(),
+    });
   }
 
   // === الطلبات ===
@@ -156,25 +247,135 @@ class OmniDeliveryAPI {
   }
 
   // === الشحن والتتبع ===
-  async trackShipment(callUid) {
+  async trackShipment(trackingNumber) {
     await this.ensureAuth();
-    const url = `${this.baseURL}/delivery/shipment/${callUid}`;
-    const response = await axios.get(url, { headers: this.headers });
-    return response.data;
+    try {
+      const response = await this.client.get(
+        `${this.baseURL}/delivery/order/${trackingNumber}`,
+        { headers: this.headers }
+      );
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || "فشل في تتبع الشحنة");
+      }
+
+      return {
+        status: response.data.data.status_code,
+        statusName: response.data.data.status_name,
+        trackingNumber: response.data.data.logistician_order_number,
+        shipmentId: response.data.data.order_uid,
+        updatedAt: response.data.data.updated_at,
+      };
+    } catch (error) {
+      console.error("OmniDelivery Track Shipment Error:", error);
+      throw error;
+    }
   }
 
   async createShipment(payload) {
     await this.ensureAuth();
-    const url = `${this.baseURL}/delivery/shipment`;
-    const response = await axios.post(url, payload, { headers: this.headers });
-    return response.data;
+    try {
+      console.log(
+        "Creating shipment with payload:",
+        JSON.stringify(payload, null, 2)
+      );
+      console.log("Using headers:", this.headers);
+
+      // التحقق من البيانات المطلوبة
+
+      const response = await this.client.post(
+        `${this.baseURL}/delivery/order`,
+        payload,
+        {
+          headers: {
+            ...this.headers,
+            Accept: "application/json",
+          },
+        }
+      );
+
+      console.log(
+        "Shipment creation response:",
+        JSON.stringify(response.data, null, 2)
+      );
+
+      if (!response.data) {
+        throw new Error("لم يتم استلام أي استجابة من الخادم");
+      }
+
+      if (!response.data.success) {
+        const errorMessage = response.data.message || "فشل إنشاء الشحنة";
+        const errorDetails = response.data.errors
+          ? JSON.stringify(response.data.errors)
+          : "";
+        throw new Error(`${errorMessage} ${errorDetails}`);
+      }
+
+      const data = response.data.data;
+      if (!data) {
+        throw new Error("لم يتم استلام بيانات الشحنة");
+      }
+
+      // استخدام رقم الطلب من شركة الشحن كرقم تتبع
+      const trackingNumber =
+        data.vendor_order_number ||
+        data.logistician_order_number ||
+        data.order_number;
+
+      if (!trackingNumber) {
+        throw new Error("لم يتم استلام رقم التتبع");
+      }
+
+      return {
+        success: true,
+        trackingNumber: trackingNumber,
+        shipmentId: data.order_uid || data.vendor_order_uid,
+        status: {
+          code: data.status_code,
+          name: data.outer_status_name || data.status_name,
+          outerCode: data.outer_status_code,
+        },
+        orderInfo: {
+          number: data.order_number,
+          vendorNumber: data.vendor_order_number,
+          logisticianNumber: data.logistician_order_number,
+        },
+        timestamps: {
+          createdAt: data.created_at,
+          updatedAt: data.updated_at,
+        },
+      };
+    } catch (error) {
+      console.error("OmniDelivery Create Shipment Error Details:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        headers: error.response?.headers,
+      });
+      throw new Error(`فشل في إنشاء الشحنة: ${error.message}`);
+    }
   }
 
-  async cancelShipment(callUid) {
+  async cancelShipment(trackingNumber) {
     await this.ensureAuth();
-    const url = `${this.baseURL}/delivery/shipment/${callUid}`;
-    const response = await axios.delete(url, { headers: this.headers });
-    return response.data;
+    try {
+      const response = await this.client.delete(
+        `${this.baseURL}/delivery/order/${trackingNumber}`,
+        { headers: this.headers }
+      );
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || "فشل في إلغاء الشحنة");
+      }
+
+      return {
+        success: true,
+        message: "تم إلغاء الشحنة بنجاح",
+      };
+    } catch (error) {
+      console.error("OmniDelivery Cancel Shipment Error:", error);
+      throw error;
+    }
   }
 
   // === الحسابات ===
@@ -225,6 +426,33 @@ class OmniDeliveryAPI {
     const url = `${this.baseURL}/delivery/order/${orderUid}/status_log`;
     const response = await axios.get(url, { headers: this.headers });
     return response.data;
+  }
+
+  // === نقاط الاستلام والتسليم ===
+  async listPickupDeliveryPoints(params = {}) {
+    await this.ensureAuth();
+    try {
+      const url =
+        `${this.baseURL}/delivery/points?` + new URLSearchParams(params);
+      const response = await this.client.get(url, { headers: this.headers });
+
+      if (!response.data.success) {
+        throw new Error(
+          response.data.message || "فشل في جلب قائمة نقاط الاستلام والتسليم"
+        );
+      }
+
+      return {
+        success: true,
+        data: response.data.data,
+        extra: response.data.extra,
+        message: response.data.message,
+        statusCode: response.data.status_code,
+      };
+    } catch (error) {
+      console.error("OmniDelivery List Points Error:", error);
+      throw error;
+    }
   }
 }
 
