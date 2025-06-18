@@ -1,130 +1,93 @@
 const mongoose = require("mongoose");
 
-const shipmentSchema = new mongoose.Schema(
-  {
-    customerId: {
-      type: mongoose.Types.ObjectId,
-      ref: "Customer",
-      required: true,
-    },
-    trackingId: {
-      type: String,
-      required: true,
-      unique: true,
-    },
-    shippingType: {
-      type: String,
-      default: "straight",
-    },
-    merchantId: {
-      type: String,
-      required: true,
-    },
-    merchantEmail: {
-      type: String,
-      required: true,
-    },
-    orderId: {
-      type: String,
-      required: true,
-    },
-    senderAddress: {
-      type: String,
-      required: true,
-    },
-    receiverAddress: {
-      type: String,
-      required: true,
-    },
-    orderSource: {
-      type: String,
-      default: "API App",
-    },
-    shipper: {
-      type: String,
-      required: true,
-      enum: ["Aramex", "smsa_b2c"],
-    },
-    paymentMethod: {
-      type: String,
-      required: true,
-      enum: ["Prepaid", "COD"],
-    },
-    shipmentStatus: {
-      type: String,
-      default: "READY_FOR_PICKUP",
-    },
-    shipperStatus: String,
-    shipmentDate: {
-      type: Date,
-      default: Date.now,
-    },
-    latestUpdateDate: {
-      type: Date,
-      default: Date.now,
-    },
-    orderValue: {
-      type: Number,
-      default: 0.0,
-    },
-    weight: {
-      type: Number,
-      required: true,
-    },
-    shippingPrice: {
-      type: Number,
-      required: true,
-    },
-    baseLabelPrice: {
-      type: Number,
-      required: true,
-    },
-    additionalWeightCost: {
-      type: Number,
-      default: 0.0,
-    },
-    codFees: {
-      type: Number,
-      default: 0.0,
-    },
-    torodMarkup: {
-      type: Number,
-      required: true,
-    },
-    pickupFees: {
-      type: Number,
-      default: 0.0,
-    },
-    insuranceCost: {
-      type: Number,
-      default: 0.0,
-    },
-    rtoPrice: {
-      type: Number,
-      default: 0.0,
-    },
-    shipmentType: {
-      type: String,
-      default: "is_normal",
-    },
-    codStatus: {
-      type: String,
-      default: "Pending",
-    },
-    platform: {
-      type: String,
-      default: "Marasil",
-    },
-    contractType: {
-      type: String,
-      default: "Marasil",
-    },
-    transferType: String,
-    transferDate: Date,
+const shapmentSchema = new mongoose.Schema({
+  receiverAddress: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "CustomerAddress",
   },
-  {
-    timestamps: true,
-  }
-);
 
-module.exports = mongoose.model("Shipment", shipmentSchema);
+  customerId: {
+    type: mongoose.Types.ObjectId,
+    ref: "Customer",
+    required: true,
+  },
+  ordervalue: {
+    type: Number,
+  },
+  orderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Order",
+  },
+  senderAddress: {
+    type: Object,
+  },
+  boxNum: {
+    type: Number,
+  },
+  weight: {
+    type: Number,
+  },
+  dimension: {
+    high: Number,
+    width: Number,
+    length: Number,
+  },
+  orderDescription: {
+    type: String,
+  },
+  paymentMathod: {
+    type: String,
+    enum: ["Prepaid", "COD"],
+  },
+  shipmentstates: {
+    type: String,
+    enum: ["Delivered", "indelivery", "Canceled"],
+  },
+
+  shapmentingType: {
+    type: String,
+    enum: ["Dry", "Cold", "Quick", "Box"],
+  },
+  shapmentCompany: {
+    type: String,
+    enum: ["smsa", "aramex", "redbox", "omnillama"],
+  },
+  trackingId: {
+    type: String,
+  },
+  storId: {
+    type: String,
+  },
+  shapmentType: {
+    type: String,
+
+    enum: ["straight", "reverse"],
+  },
+  shapmentPrice: {
+    type: Number,
+  },
+  orderSou: {
+    type: String,
+  },
+  priceaddedtax: { type: Number, default: 0.15 },
+  basePrice: { type: Number }, // السعر الأساسي (للمتعاقدين فقط)
+  profitPrice: { type: Number },
+  profitRTOprice: { type: Number },
+  baseAdditionalweigth: { type: Number },
+  profitAdditionalweigth: { type: Number },
+  baseCODfees: { type: Number },
+  profitCODfees: { type: Number },
+  insurancecost: { type: Number },
+  byocPrice: { type: Number, default: 0.0 },
+  basepickUpPrice: { type: Number, default: 0.0 },
+  profitpickUpPrice: { type: Number, default: 0.0 },
+  baseRTOprice: { type: Number, default: 0.0 }, // رسوم الإرجاع
+});
+
+// إضافة indexes إضافية
+shapmentSchema.index({ trackingId: 1 });
+shapmentSchema.index({ orderId: 1 });
+shapmentSchema.index({ status: 1 });
+
+const Shapment = mongoose.model("Shapment", shapmentSchema);
+module.exports = Shapment;
