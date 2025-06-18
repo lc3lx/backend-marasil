@@ -4,7 +4,7 @@ const employeeSchema = new mongoose.Schema(
   {
     // Personal Information (البيانات الشخصية)
     fullName: { type: String, required: [false, "Full name is required"] },
-    idNumber: { type: String, required: [false, "ID number is required"] },
+    // idNumber: { type: String, required: [false, "ID number is required"] },
     birthDate: { type: Date, required: [false, "Birth date is required"] },
     gender: { type: String, enum: ["male", "female"], required: false },
     nationality: { type: String, required: false },

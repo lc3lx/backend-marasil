@@ -8,11 +8,15 @@ const mongoose = require("mongoose");
 require("dotenv").config();
 const globalError = require("./middlewares/errormiddleware");
 
+// notification routes
+const notificationRoutes = require("./routes/notificationRoutes");
+const Notification = require("./models/notifactionModel");
+
+// Routes
+const authRoutes = require("./routes/authRoutes");
+const customerRoutes = require("./routes/adminRoutes");
 const orderRoutes = require("./routes/orderRoutes");
-const authRoutes = require("./routes/authRutes");
-const customerRoutes = require("./routes/customerRoutes");
-const bankInfoRoutes = require("./routes/bankInfoRoutes");
-const prsonealInfoRoutes = require("./routes/prsonealInfoRoutes");
+// const bankInfoRoutes = require("./routes/bankInfoRoutes");
 const webhookRoutes = require("./routes/webhookRoutes");
 const walletRoutes = require("./routes/walletRoutes");
 const transactionsRoutes = require("./routes/transactitonsRoutes");
@@ -24,8 +28,6 @@ const mnasatiRoutes = require("./routes/mnasatiRoutes");
 const clientAddressRoutes = require("./routes/clientAddressRoutes");
 const orderManuallyRoutes = require("./routes/orderManuallyRoutes");
 const packageRoutes = require("./routes/packageRoutes");
-const shipmentRoutes = require("./routes/shipmentRoute");
-const companyShipmentRoutes = require("./routes/shippingCompanyRoute");
 
 // sysytem routes
 const employeeRoutes = require("./system/routes/employeeRoutes");
@@ -73,12 +75,79 @@ app.use(
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "uploads"))); // is used in an Express.js application to serve static files (like images, CSS, JavaScrip)
 
+// send notifaction
+
+const http = require("http");
+const socketIo = require("socket.io");
+// const Notification = require("./models/notificationModel"); // استيراد نموذج الإشعارات
+
+// 2️⃣ إنشاء تطبيق Express وسيرفر HTTP
+const server = http.createServer(app);
+
+// 3️⃣ تمرير السيرفر إلى socket.io
+const io = socketIo(server, {
+  cors: {
+    origin: "*", // In production, restrict this to your domain
+    methods: ["GET", "POST"],
+    credentials: true
+  }
+});
+
+// Store active user connections
+const activeUsers = new Map();
+
+// Socket.IO connection handling
+io.on("connection", (socket) => {
+  console.log("New client connected");
+  
+  // User authentication and mapping
+  socket.on("authenticate", (userId) => {
+    activeUsers.set(userId, socket.id);
+    console.log(`User ${userId} connected with socket ${socket.id}`);
+    
+    // Join a room specific to this user
+    socket.join(`user-${userId}`);
+  });
+  
+  // Handle disconnection
+  socket.on("disconnect", () => {
+    // Remove user from active users
+    for (const [userId, socketId] of activeUsers.entries()) {
+      if (socketId === socket.id) {
+        activeUsers.delete(userId);
+        console.log(`User ${userId} disconnected`);
+        break;
+      }
+    }
+  });
+});
+
+// Make io accessible to our routes
+app.set("io", io);
+app.set("activeUsers", activeUsers);
+
+
+
+// 4️⃣ استضافة ملفات الواجهة الأمامية (index.html مثلاً)
+app.use(express.static("public")); // public/index.html مثلاً
+
+// 5️⃣ التعامل مع الاتصالات الجديدة
+io.on("connection", (socket) => {
+  socket.on("adminBroadcast", async (data) => {
+    // حفظ في Mongo
+    await Notification.create(data);
+
+    // إرسال لكل المستخدمين
+    io.emit("notification", data);
+  });
+});
+
 // تحميل الروابط
-app.use("/api/order", orderRoutes);
+
 app.use("/api/auth", authRoutes);
 app.use("/api/customer", customerRoutes);
-app.use("/api/bankinfo", bankInfoRoutes);
-app.use("/api/personinfo", prsonealInfoRoutes);
+app.use("/api/order", orderRoutes);
+// app.use("/api/bankinfo", bankInfoRoutes);
 app.use("/api/webhook", webhookRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/tranactions", transactionsRoutes);
@@ -90,13 +159,17 @@ app.use("/api/mnasati", mnasatiRoutes);
 app.use("/api/clientaddress", clientAddressRoutes);
 app.use("/api/orderManually", orderManuallyRoutes);
 app.use("/api/package", packageRoutes);
-app.use("/api/shipment", shipmentRoutes);
-app.use("/api/shipmentcompany", companyShipmentRoutes);
-
+app.use("/api/notifications", notificationRoutes);
 //system mount routes
 app.use("/api/employees", employeeRoutes);
 app.use("/api/salarymodifaction", salaryModifactionRoutes);
 app.use("/api/salaries", salaryRoutes);
+
+
+
+// Middleware لتحليل JSON
+// app.use(express.json());
+// app.use(express.static(path.join(__dirname, "uploads")));
 
 app.post("/webhook/moyasar", webhookCheckout);
 

@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { protect, allowedTo } = require("../../controllers/authController");
+const auth = require("../../controllers/authController");
 const {
   getAllEmployees,
   getEmployee,
@@ -12,7 +12,7 @@ const {
 } = require("../controllers/employeeController");
 
 // Protect all routes
-router.use(protect, allowedTo("admin", "user"));
+router.use(auth.Protect)
 
 // Employee routes
 router

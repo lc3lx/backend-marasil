@@ -1,18 +1,62 @@
 const axios = require("axios");
 
 class RedBoxService {
-  constructor(apiToken, sandbox = true) {
+  constructor(apiToken = process.env.REDBOX_API_TOKEN, sandbox = true) {
+    // استخدام التوكن الافتراضي إذا لم يتم تمرير توكن
+    this.apiToken =
+      apiToken ||
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25faWQiOiI2Nzg0ZjdjY2IxZWY2ZjYyNWE1ODM2ZDQiLCJrZXkiOiIyMDI1LTAxLTEzVDExOjI0OjEwLjUxMloiLCJpYXQiOjE3MzY3Njc0NTB9.a_ULB21e7nZuOruU4qurTxVvKi18lk6cgpnWGkA_SYs";
+
     this.baseURL = sandbox
       ? "https://stage.api.redboxsa.com"
       : "https://api.redboxsa.com";
-    this.apiToken = apiToken;
+
     this.client = axios.create({
       baseURL: this.baseURL,
       headers: {
         Authorization: `Bearer ${this.apiToken}`,
         "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      validateStatus: function (status) {
+        return status < 500; // Resolve only if the status code is less than 500
       },
     });
+
+    // إضافة معالج للأخطاء
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response) {
+          // تم استلام رد من الخادم مع رمز حالة خارج نطاق 2xx
+          switch (error.response.status) {
+            case 401:
+              throw new Error("غير مصرح: تأكد من صحة API Token");
+            case 403:
+              throw new Error("غير مصرح: ليس لديك صلاحية للوصول");
+            case 404:
+              throw new Error("الخدمة غير موجودة");
+            case 422:
+              const validationErrors = error.response.data.errors
+                ? Object.entries(error.response.data.errors)
+                    .map(([field, errors]) => `${field}: ${errors.join(", ")}`)
+                    .join("\n")
+                : error.response.data.message;
+              throw new Error(`خطأ في البيانات:\n${validationErrors}`);
+            default:
+              throw new Error(
+                `خطأ في الخادم: ${error.response.data.message || error.message}`
+              );
+          }
+        } else if (error.request) {
+          // تم إرسال الطلب ولكن لم يتم استلام رد
+          throw new Error("لا يمكن الوصول إلى خادم RedBox");
+        } else {
+          // حدث خطأ أثناء إعداد الطلب
+          throw new Error(`خطأ في الطلب: ${error.message}`);
+        }
+      }
+    );
   }
 
   // -------------------- Shipments --------------------
@@ -20,13 +64,18 @@ class RedBoxService {
    * Create a new shipment
    */
   async createShipment(data) {
-    const payload = {};
-    const res = await this.client.post("/v3/shipments", payload);
-    return {
-      shipmentId: res.data.shipment_id,
-      trackingNumber: res.data.tracking_number,
-      shippingLabelURL: res.data.shipping_label_url,
-    };
+    try {
+      const res = await this.client.post("/v3/shipments", data);
+      return {
+        success: true,
+        trackingNumber: res.data.tracking_number,
+        shipmentId: res.data.shipment_id,
+        label: res.data.shipping_label_url,
+      };
+    } catch (error) {
+      console.error("RedBox Create Shipment Error:", error);
+      throw error;
+    }
   }
 
   /**
