@@ -50,7 +50,7 @@ exports.getSuitablePoint = async (location, isPickup = true) => {
       // إذا لم يتم العثور على نقاط، نعيد بيانات الموقع الأصلي
       console.log("No points found, using original location data");
       return {
-        uid: null,
+        uid: 1,
         location: {
           full_address: location.address || "",
           city: { name: location.city || "" },
@@ -70,7 +70,7 @@ exports.getSuitablePoint = async (location, isPickup = true) => {
     console.error("خطأ في الحصول على نقطة الاستلام/التسليم:", error);
     // في حالة حدوث خطأ، نعيد بيانات الموقع الأصلي
     return {
-      uid: null,
+      uid: 1,
       location: {
         full_address: location?.address || "",
         city: { name: location?.city || "" },
@@ -164,51 +164,11 @@ exports.shipmentData = async (
       location_from: {
         point: {
           uid: pickupPoint.uid,
-          address:
-            pickupPoint.location.full_address || shipperAddress.address || "",
-          city: pickupPoint.location.city.name || shipperAddress.city || "",
-          country:
-            pickupPoint.location.country.name || shipperAddress.country || "SA",
-          coordinates: {
-            lat:
-              pickupPoint.location.latitude ||
-              shipperAddress.coordinates?.lat ||
-              0,
-            lng:
-              pickupPoint.location.longitude ||
-              shipperAddress.coordinates?.lng ||
-              0,
-          },
-          post_code:
-            pickupPoint.location.postal_index || shipperAddress.post_code || "",
         },
       },
       location_to: {
         point: {
           uid: deliveryPoint.uid,
-          address:
-            deliveryPoint.location.full_address ||
-            order.customer?.address ||
-            "",
-          city: deliveryPoint.location.city.name || order.customer?.city || "",
-          country:
-            deliveryPoint.location.country.name ||
-            order.customer?.country ||
-            "SA",
-          coordinates: {
-            lat:
-              deliveryPoint.location.latitude ||
-              order.customer?.coordinates?.lat ||
-              0,
-            lng:
-              deliveryPoint.location.longitude ||
-              order.customer?.coordinates?.lng ||
-              0,
-          },
-          post_code:
-            deliveryPoint.location.postal_index ||
-            order.customer?.post_code ||
-            "",
         },
       },
 
