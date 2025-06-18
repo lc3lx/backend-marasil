@@ -28,6 +28,8 @@ const mnasatiRoutes = require("./routes/mnasatiRoutes");
 const clientAddressRoutes = require("./routes/clientAddressRoutes");
 const orderManuallyRoutes = require("./routes/orderManuallyRoutes");
 const packageRoutes = require("./routes/packageRoutes");
+const shipmentRoutes = require("./routes/shipmentRoute");
+const companyShipmentRoutes = require("./routes/shippingCompanyRoute");
 
 // sysytem routes
 const employeeRoutes = require("./system/routes/employeeRoutes");
@@ -89,8 +91,8 @@ const io = socketIo(server, {
   cors: {
     origin: "*", // In production, restrict this to your domain
     methods: ["GET", "POST"],
-    credentials: true
-  }
+    credentials: true,
+  },
 });
 
 // Store active user connections
@@ -99,16 +101,16 @@ const activeUsers = new Map();
 // Socket.IO connection handling
 io.on("connection", (socket) => {
   console.log("New client connected");
-  
+
   // User authentication and mapping
   socket.on("authenticate", (userId) => {
     activeUsers.set(userId, socket.id);
     console.log(`User ${userId} connected with socket ${socket.id}`);
-    
+
     // Join a room specific to this user
     socket.join(`user-${userId}`);
   });
-  
+
   // Handle disconnection
   socket.on("disconnect", () => {
     // Remove user from active users
@@ -125,8 +127,6 @@ io.on("connection", (socket) => {
 // Make io accessible to our routes
 app.set("io", io);
 app.set("activeUsers", activeUsers);
-
-
 
 // 4️⃣ استضافة ملفات الواجهة الأمامية (index.html مثلاً)
 app.use(express.static("public")); // public/index.html مثلاً
@@ -160,12 +160,12 @@ app.use("/api/clientaddress", clientAddressRoutes);
 app.use("/api/orderManually", orderManuallyRoutes);
 app.use("/api/package", packageRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/shipment", shipmentRoutes);
+app.use("/api/shipmentcompany", companyShipmentRoutes);
 //system mount routes
 app.use("/api/employees", employeeRoutes);
 app.use("/api/salarymodifaction", salaryModifactionRoutes);
 app.use("/api/salaries", salaryRoutes);
-
-
 
 // Middleware لتحليل JSON
 // app.use(express.json());
