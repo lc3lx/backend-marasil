@@ -17,45 +17,35 @@ const auth = require("../controllers/authController");
 const router = express.Router();
 
 // Customer routes (requires authentication)
-router.get("/stats", auth.protect, getShipmentsStats);
-router.get("/my-shipments", auth.protect, getCustomerShipments);
-router.get("/my-shipment/:id", auth.protect, getShipment);
-router.get("/search", auth.protect, searchShipments);
+router.get("/stats", auth.Protect, getShipmentsStats);
+router.get("/my-shipments", auth.Protect, getCustomerShipments);
+router.get("/my-shipment/:id", auth.Protect, getShipment);
+router.get("/search", auth.Protect, searchShipments);
 
-router.post("/createshipment", auth.protect, createShapment);
-router.post("/traking/:id", auth.protect, trackingShipment);
-router.post("/cancel/:id", auth.protect, cancelShipment);
+router.post("/createshipment", auth.Protect, createShapment);
+router.post("/traking", auth.Protect, trackingShipment);
+router.post("/cancel", auth.Protect, cancelShipment);
 
 // Admin routes (requires admin authentication)
-router.get(
-  "/all",
-  auth.protect,
-  auth.allowedTo("admin", "superadmin"),
-  getAllShipments
-);
+router.get("/all", auth.Protect, auth.allowedTo("admin"), getAllShipments);
 router.get(
   "/admin/:id",
-  auth.protect,
-  auth.allowedTo("admin", "superadmin"),
+  auth.Protect,
+  auth.allowedTo("admin"),
   getShipmentAdmin
 );
 router.put(
   "/admin/:id",
-  auth.protect,
+  auth.Protect,
   auth.allowedTo("admin", "superadmin"),
   updateShipment
 );
 router.delete(
   "/admin/:id",
-  auth.protect,
+  auth.Protect,
   auth.allowedTo("admin", "superadmin"),
   deleteShipment
 );
-router.get(
-  "/admin/search",
-  auth.protect,
-  auth.allowedTo("admin", "superadmin"),
-  searchShipments
-);
+router.get("/admin/search", searchShipments);
 
 module.exports = router;

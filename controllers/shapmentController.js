@@ -1,5 +1,5 @@
 //module import
-const Shapment = require("../models/shapmentModel");
+const Shapment = require("../models/shipmentModel");
 const Order = require("../models/Order");
 const shappingCompany = require("../models/shipping_company");
 const Wallet = require("../models/walletModel");
@@ -18,6 +18,7 @@ const aramxServers = require("../services/AramexService");
 // helpers import
 const ApiEror = require("../utils/apiError");
 const asyncHandler = require("express-async-handler");
+
 /*
 MATHOD : POST
 THIS MOTHOD FOR CREATE SHIPMENT 
@@ -57,17 +58,25 @@ module.exports.createShapment = asyncHandler(async (req, res, next) => {
     if (!shippingCompany) {
       return next(new ApiEror(`شركة الشحن ${company} غير موجودة`, 404));
     }
+
     if (shippingCompany.status !== "Enabled") {
       return next(new ApiEror(`شركة الشحن ${company} غير مفعلة حالياً`, 400));
     }
 
-    // 3. التحقق من نوع الشحن المطلوب
+    // 3. ا
+    // لتحقق من نوع الشحن المطلوب
+
     const shippingType = shippingCompany.shippingTypes.find(
       (t) => t.type === shipmentType
     );
-    if (!shippingType) {
+
+    if (shippingType.type === null) {
+      console.log(shippingType.type);
       return next(
-        new ApiEror(`نوع الشحن ${shipmentType} غير متوفر مع ${company}`, 400)
+        new ApiEror(
+          `نوع الشحن ${shipmentType.type} غير متوفر مع ${company}`,
+          400
+        )
       );
     }
 
@@ -90,32 +99,37 @@ module.exports.createShapment = asyncHandler(async (req, res, next) => {
     }
 
     // 5. حساب تكلفة الشحن
-    const pricing = shipmentnorm(shippingCompany, {
-      weight,
-      shippingType: shipmentType,
+    const orderWithWeight = {
+      ...order,
+      weight: weight,
       paymentMethod: order.payment_method,
-    });
-    const wallet = await Wallet.findOne(req.customer._id);
-    if (wallet.balance < pricing.total) {
-      return next(
-        new ApiEror("no mony have for the shipment plese charging again ", 402)
-      );
-    }
-    wallet.balance -= pricing.total;
-    await wallet.save();
+    };
+    const pricing = shipmentnorm(shippingType, orderWithWeight);
+
+    const wallet = await Wallet.findOne({ customerId: req.customer._id });
+    // console.log(wallet.balance);
+    // if (wallet.balance  pricing.total) {
+    //   return next(
+    //     new ApiEror("no mony have for the shipment plese charging again ", 402)
+    //   );
+    // }
+    // wallet.balance = wallet.balance - pricing.total;
+    // await wallet.save();
 
     // 6. إنشاء الشحنة حسب الشركة
     let trackingInfo;
     let shipmentData;
+
     switch (company) {
       case "smsa":
+        console.log(req.body);
         shipmentData = smsaServers.Shapmentdata(
-          shippingCompany.code,
           order,
           shipperAddress,
           weight,
           Parcels,
-          orderDescription
+          orderDescription,
+          shippingCompany.code
         );
         trackingInfo = await smsaExxpress.createShipment(shipmentData);
         break;
@@ -135,11 +149,22 @@ module.exports.createShapment = asyncHandler(async (req, res, next) => {
           shipperAddress,
           weight,
           Parcels,
-          orderDescription
+          orderDescription,
+          req.body.dimension
         );
-        trackingInfo = await aramex.createShipment(shipmentData);
+        try {
+          trackingInfo = await aramex.createShipment(shipmentData);
+          if (!trackingInfo || !trackingInfo.trackingNumber) {
+            throw new Error("فشل في الحصول على رقم التتبع");
+          }
+        } catch (error) {
+          console.error("Aramex Error:", error);
+          return next(
+            new ApiEror(`فشل في إنشاء الشحنة: ${error.message}`, 500)
+          );
+        }
         break;
-      case "ominlma":
+      case "omniclama":
         shipmentData = ominServers.shipmentData(
           order,
           shipperAddress,
@@ -147,15 +172,25 @@ module.exports.createShapment = asyncHandler(async (req, res, next) => {
           Parcels,
           orderDescription
         );
-        trackingInfo = await omin.createShipment(shipmentData);
+        try {
+          trackingInfo = await omin.createShipment(shipmentData);
+          if (!trackingInfo || !trackingInfo.trackingNumber) {
+            throw new Error("فشل في الحصول على رقم التتبع");
+          }
+        } catch (error) {
+          console.error("OmniDelivery Error:", error);
+          return next(
+            new ApiEror(`فشل في إنشاء الشحنة: ${error.message}`, 500)
+          );
+        }
         break;
     }
 
     // 7. حفظ بيانات الشحنة
     const shipment = new Shapment({
-      customerId: req.Customer._id,
       receiverAddress: order.customer_address,
       ordervalue: order.total.amount,
+      customerId: req.customer._id,
       orderId: order._id,
       senderAddress: shipperAddress,
       boxNum: Parcels,
