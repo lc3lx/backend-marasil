@@ -18,7 +18,7 @@ const aramxServers = require("../services/AramexService");
 // helpers import
 const ApiEror = require("../utils/apiError");
 const asyncHandler = require("express-async-handler");
-
+const mongoose = require("mongoose");
 /*
 MATHOD : POST
 THIS MOTHOD FOR CREATE SHIPMENT 
