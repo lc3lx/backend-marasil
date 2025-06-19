@@ -89,21 +89,25 @@ app.use(
   })
 );
 
+const allowedOrigins = [
+  process.env.FRONTEND_URL, // e.g., 'https://marasil.netlify.app'
+  "http://localhost:3000",
+  "http://localhost:3001"
+];
 
 app.use(
   cors({
     origin: function (origin, callback) {
       // allow requests with no origin (like mobile apps, curl, etc.)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
       } else {
-        return callback(new Error("Not allowed by CORS"));
+        callback(null, false); // Just reject, don't throw error
       }
     },
     methods: ["GET","POST","PUT","DELETE","PATCH","OPTIONS"],
-    credentials: true
-  })
+    credentials: true
+  })
 );
 
 app.use(express.json());
