@@ -1,22 +1,22 @@
 const path = require("path");
-
+const express = require("express");
+const http = require("http");
+const cors = require("cors");
 const session = require("express-session");
 const MongoStore = require("connect-mongo");
-
-const express = require("express");
 const mongoose = require("mongoose");
 require("dotenv").config();
+
+// Middlewares
 const globalError = require("./middlewares/errormiddleware");
 
-// notification routes
-const notificationRoutes = require("./routes/notificationRoutes");
-const Notification = require("./models/notifactionModel");
+// Models
+const Notification = require("./models/notificationModel");
 
 // Routes
 const authRoutes = require("./routes/authRoutes");
 const customerRoutes = require("./routes/adminRoutes");
 const orderRoutes = require("./routes/orderRoutes");
-// const bankInfoRoutes = require("./routes/bankInfoRoutes");
 const webhookRoutes = require("./routes/webhookRoutes");
 const walletRoutes = require("./routes/walletRoutes");
 const transactionsRoutes = require("./routes/transactitonsRoutes");
@@ -31,16 +31,16 @@ const packageRoutes = require("./routes/packageRoutes");
 const shipmentRoutes = require("./routes/shipmentRoute");
 const companyShipmentRoutes = require("./routes/shippingCompanyRoute");
 
-// sysytem routes
+// System routes
 const employeeRoutes = require("./system/routes/employeeRoutes");
-const salaryModifactionRoutes = require("./system/routes/salaryModificationRoutes");
+const salaryModificationRoutes = require("./system/routes/salaryModificationRoutes");
 const salaryRoutes = require("./system/routes/salaryRoutes");
 
-// schedule salary processing
+// Utilities
 const { scheduleSalaryProcessing } = require("./utils/scheduler");
 scheduleSalaryProcessing();
 
-//  run function schedule
+// Controllers (to initialize jobs)
 require("./controllers/sallaController");
 require("./controllers/shopifyController");
 require("./controllers/zidController");
@@ -48,18 +48,33 @@ require("./controllers/wooCommerceController");
 require("./controllers/mnasatiController");
 
 const { webhookCheckout } = require("./controllers/walletController");
+
+// Initialize app and server
 const app = express();
+const server = http.createServer(app);
 
-const PORT = process.env.PORT || 4000;
+// Socket.IO setup
+const socketIo = require("socket.io");
+const io = socketIo(server, {
+  cors: {
+    origin: process.env.NODE_ENV === "production"
+      ? process.env.FRONTEND_URL
+      : ["http://localhost:3000", "http://localhost:3001"],
+    methods: ["GET","POST","PUT","DELETE","PATCH","OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"]
+  }
+});
 
-// توصيل MongoDB
+// Store active user connections
+const activeUsers = new Map();
+
+// MongoDB connection
 mongoose
   .connect(process.env.DATABASE_URL)
-  .then((conn) => {
-    console.log(`Database Connected: ${conn.connection.host}`);
-  })
-  .catch((err) => {
-    console.log(`Database Error: ${err.message}`);
+  .then(conn => console.log(`Database Connected: ${conn.connection.host}`))
+  .catch(err => {
+    console.error(`Database Error: ${err.message}`);
     process.exit(1);
   });
 
@@ -70,56 +85,48 @@ app.use(
     store: MongoStore.create({ mongoUrl: process.env.DATABASE_URL }),
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === "production" },
+    cookie: { secure: process.env.NODE_ENV === "production" }
+  })
+);
+
+// Enable CORS for HTTP APIs
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    methods: ["GET","POST","PUT","DELETE","PATCH","OPTIONS"],
+    credentials: true
   })
 );
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "uploads"))); // is used in an Express.js application to serve static files (like images, CSS, JavaScrip)
+app.use(express.static(path.join(__dirname, "uploads")));
+app.use(express.static("public"));
 
-// send notifaction
+// Socket.IO connection handling (merge all listeners)
+io.on("connection", socket => {
+  console.log("New client connected", socket.id);
 
-const http = require("http");
-const socketIo = require("socket.io");
-// const Notification = require("./models/notificationModel"); // استيراد نموذج الإشعارات
-
-// 2️⃣ إنشاء تطبيق Express وسيرفر HTTP
-const server = http.createServer(app);
-
-// 3️⃣ تمرير السيرفر إلى socket.io
-// ⿣ تمرير السيرفر إلى socket.io
-const io = socketIo(server, {
-  cors: {
-    origin: process.env.NODE_ENV === "production" 
-      ? process.env.FRONTEND_URL || "http://localhost:3000" 
-      : ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"],
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"]
-  },
-});
-
-// Store active user connections
-const activeUsers = new Map();
-
-// Socket.IO connection handling
-io.on("connection", (socket) => {
-  console.log("New client connected");
-
-  // User authentication and mapping
-  socket.on("authenticate", (userId) => {
+  // Authentication mapping
+  socket.on("authenticate", userId => {
     activeUsers.set(userId, socket.id);
-    console.log(`User ${userId} connected with socket ${socket.id}`);
-
-    // Join a room specific to this user
     socket.join(`user-${userId}`);
+    console.log(`User ${userId} authenticated on socket ${socket.id}`);
   });
 
-  // Handle disconnection
+  // Admin broadcast
+  socket.on("adminBroadcast", async data => {
+    try {
+      await Notification.create(data);
+      io.emit("notification", data);
+    } catch (err) {
+      console.error("Failed to save notification:", err);
+    }
+  });
+
+  // Handle disconnect
   socket.on("disconnect", () => {
-    // Remove user from active users
-    for (const [userId, socketId] of activeUsers.entries()) {
-      if (socketId === socket.id) {
+    for (const [userId, sockId] of activeUsers.entries()) {
+      if (sockId === socket.id) {
         activeUsers.delete(userId);
         console.log(`User ${userId} disconnected`);
         break;
@@ -128,33 +135,17 @@ io.on("connection", (socket) => {
   });
 });
 
-// Make io accessible to our routes
+// Expose io and activeUsers to routes
 app.set("io", io);
 app.set("activeUsers", activeUsers);
 
-// 4️⃣ استضافة ملفات الواجهة الأمامية (index.html مثلاً)
-app.use(express.static("public")); // public/index.html مثلاً
-
-// 5️⃣ التعامل مع الاتصالات الجديدة
-io.on("connection", (socket) => {
-  socket.on("adminBroadcast", async (data) => {
-    // حفظ في Mongo
-    await Notification.create(data);
-
-    // إرسال لكل المستخدمين
-    io.emit("notification", data);
-  });
-});
-
-// تحميل الروابط
-
+// Mount routes
 app.use("/api/auth", authRoutes);
 app.use("/api/customer", customerRoutes);
 app.use("/api/order", orderRoutes);
-// app.use("/api/bankinfo", bankInfoRoutes);
 app.use("/api/webhook", webhookRoutes);
 app.use("/api/wallet", walletRoutes);
-app.use("/api/tranactions", transactionsRoutes);
+app.use("/api/transactions", transactionsRoutes);
 app.use("/api/salla", sallaRoutes);
 app.use("/api/shopify", shopifyRoutes);
 app.use("/api/zid", zidRoutes);
@@ -163,23 +154,23 @@ app.use("/api/mnasati", mnasatiRoutes);
 app.use("/api/clientaddress", clientAddressRoutes);
 app.use("/api/orderManually", orderManuallyRoutes);
 app.use("/api/package", packageRoutes);
-app.use("/api/notifications", notificationRoutes);
+app.use("/api/notifications", require("./routes/notificationRoutes"));
 app.use("/api/shipment", shipmentRoutes);
 app.use("/api/shipmentcompany", companyShipmentRoutes);
-//system mount routes
+
+// System routes
 app.use("/api/employees", employeeRoutes);
-app.use("/api/salarymodifaction", salaryModifactionRoutes);
+app.use("/api/salarymodification", salaryModificationRoutes);
 app.use("/api/salaries", salaryRoutes);
 
-// Middleware لتحليل JSON
-// app.use(express.json());
-// app.use(express.static(path.join(__dirname, "uploads")));
-
+// Webhook endpoint
 app.post("/webhook/moyasar", webhookCheckout);
 
+// Global error handler
 app.use(globalError);
 
-// تشغيل الخادم
-app.listen(PORT, () => {
+// Start server
+const PORT = process.env.PORT || 4000;
+server.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
