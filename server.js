@@ -11,7 +11,7 @@ require("dotenv").config();
 const globalError = require("./middlewares/errormiddleware");
 
 // Models
-const Notification = require("./models/notificationModel");
+//const Notification = require("./models/notificationModel");
 
 // Routes
 const authRoutes = require("./routes/authRoutes");
