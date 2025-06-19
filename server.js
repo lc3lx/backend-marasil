@@ -87,11 +87,15 @@ const socketIo = require("socket.io");
 const server = http.createServer(app);
 
 // 3️⃣ تمرير السيرفر إلى socket.io
+// ⿣ تمرير السيرفر إلى socket.io
 const io = socketIo(server, {
   cors: {
-    origin: "*", // In production, restrict this to your domain
-    methods: ["GET", "POST"],
+    origin: process.env.NODE_ENV === "production" 
+      ? process.env.FRONTEND_URL || "http://localhost:3000" 
+      : ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"]
   },
 });
 
