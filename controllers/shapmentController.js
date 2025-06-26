@@ -1,4 +1,5 @@
 //module import
+const mongoose = require("mongoose");
 const Shapment = require("../models/shipmentModel");
 const Order = require("../models/Order");
 const shappingCompany = require("../models/shipping_company");
@@ -142,6 +143,19 @@ module.exports.createShapment = asyncHandler(async (req, res, next) => {
           orderDescription
         );
         trackingInfo = await redbox.createShipment(shipmentData);
+        
+        // حفظ استجابة Redbox بالكامل
+        if (trackingInfo && trackingInfo.success) {
+          // تحديث الشحنة بمعلومات إضافية من Redbox
+          await Shapment.findByIdAndUpdate(order._id, {
+            $set: {
+              'redboxResponse': trackingInfo, // حفظ الرد الكامل
+              'trackingId': trackingInfo.tracking_number,
+              'shippingLabelUrl': trackingInfo.shipping_label_url,
+              'redboxShipmentId': trackingInfo.shipment_id
+            }
+          });
+        }
         break;
       case "aramex":
         shipmentData = aramxServers.shipmentData(
@@ -165,14 +179,15 @@ module.exports.createShapment = asyncHandler(async (req, res, next) => {
         }
         break;
       case "omniclama":
-        shipmentData = ominServers.shipmentData(
-          order,
-          shipperAddress,
-          weight,
-          Parcels,
-          orderDescription
-        );
         try {
+          shipmentData = await ominServers.shipmentData(
+            order,
+            shipperAddress,
+            weight,
+            Parcels,
+            orderDescription,
+            (direction_type = "1")
+          );
           trackingInfo = await omin.createShipment(shipmentData);
           if (!trackingInfo || !trackingInfo.trackingNumber) {
             throw new Error("فشل في الحصول على رقم التتبع");
@@ -186,18 +201,44 @@ module.exports.createShapment = asyncHandler(async (req, res, next) => {
         break;
     }
 
-    // 7. حفظ بيانات الشحنة
-    const shipment = new Shapment({
-      receiverAddress: order.customer_address,
-      ordervalue: order.total.amount,
+    // 7. البحث عن عنوان المستلم أو إنشاؤه
+    const ClientAddress = mongoose.model('ClientAddress');
+    let address = await ClientAddress.findOne({ 
+      clientEmail: order.customer.email,
+      clientPhone: order.customer.mobile
+    });
+
+    if (!address) {
+      address = new ClientAddress({
+        clientName: order.customer.full_name || 'عميل بدون اسم',
+        clientPhone: order.customer.mobile,
+        clientEmail: order.customer.email,
+        clientAddress: order.customer.address || 'عنوان غير محدد',
+        country: order.customer.country || 'SA',
+        city: order.customer.city || 'الرياض',
+        district: order.customer.district || 'غير محدد',
+        customer: req.customer._id
+      });
+      await address.save();
+    }
+
+    // 8. حفظ بيانات الشحنة مع جميع التفاصيل والأسعار
+   shipmentData = {
+      receiverAddress: address._id, // استخدام معرف العنوان
       customerId: req.customer._id,
+      ordervalue: order.total.amount,
       orderId: order._id,
       senderAddress: shipperAddress,
       boxNum: Parcels,
-      weight,
-      dimension: req.body.dimension || {},
+      weight: weight,
+      dimension: req.body.dimension ? {
+        high: req.body.dimension.high || 0,
+        width: req.body.dimension.width || 0,
+        length: req.body.dimension.length || 0
+      } : { high: 0, width: 0, length: 0 },
       orderDescription: order.description || "",
-      paymentMathod: order.payment_method,
+      paymentMathod: order.payment_method === "COD" ? "COD" : "Prepaid",
+      shipmentstates: "indelivery",
       shapmentingType: shipmentType,
       shapmentCompany: company,
       trackingId: trackingInfo.trackingNumber,
@@ -205,10 +246,27 @@ module.exports.createShapment = asyncHandler(async (req, res, next) => {
       shapmentType: "straight",
       shapmentPrice: pricing.total,
       orderSou: order.platform,
-      ...shippingType, // نسخ جميع الأسعار والرسوم من نوع الشحن
-    });
+      priceaddedtax: shippingType.priceaddedtax || 0.15,
+      basePrice: shippingType.basePrice || 0,
+      profitPrice: shippingType.profitPrice || 0,
+      profitRTOprice: shippingType.profitRTOprice || 0,
+      baseAdditionalweigth: shippingType.baseAdditionalweigth || 0,
+      profitAdditionalweigth: shippingType.profitAdditionalweigth || 0,
+      baseCODfees: shippingType.baseCODfees || 0,
+      profitCODfees: shippingType.profitCODfees || 0,
+      insurancecost: shippingType.insurancecost || 0,
+      byocPrice: shippingType.byocPrice || 0,
+      basepickUpPrice: shippingType.basepickUpPrice || 0,
+      profitpickUpPrice: shippingType.profitpickUpPrice || 0,
+      baseRTOprice: shippingType.baseRTOprice || 0,
+      isReturnable: true,
+      returnDeadline: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) // 14 يوم من الآن
+    };
 
+    const shipment = new Shapment(shipmentData);
     await shipment.save();
+    
+    console.log('تم حفظ الشحنة بنجاح:', shipment._id);
 
     // 8. تحديث حالة الطلب
     await Order.findByIdAndUpdate(order._id, { status: "shipped" });
